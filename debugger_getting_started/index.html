@@ -1,0 +1,103 @@
+<!doctype html>
+
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>Raspberry Pi Serial COMM</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+
+  <script type="text/javascript" src="../js/rpi_debugger.js"></script>
+
+</head>
+
+<body>
+
+  <main class="m-3">
+
+    <section>
+
+      <button id="btn_start_serial_comm" class="btn btn-primary">Start Communication</button>
+
+      <div id="div_controls" hidden>
+
+        <button id="btn_restart_rp" class="btn btn-primary">Restart Raspberry Pi</button>
+
+        <button id="btn_exit_rp" class="btn btn-primary">Exit Raspberry Pi</button>
+
+        <p><small>(last 10 log messages shown)</small></p>
+
+      </div>
+
+    </section>
+
+    <section>
+
+      <p id="log" class="info"></p>
+
+    </section>
+
+  </main>
+
+  <script type="text/javascript">
+
+    let rpi_debugger = new RPIDebugger();
+
+    function set_ui(state) {
+
+      switch (state) {
+
+        case RPIDebugger.state.stopped: {
+
+          btn_start_serial_comm.hidden = false;
+
+          div_controls.hidden = true;
+
+        }
+          break;
+
+        case RPIDebugger.state.unavailable_or_error:
+        case RPIDebugger.state.starting: {
+
+          btn_start_serial_comm.hidden = true;
+
+          div_controls.hidden = true;
+
+        }
+          break;
+
+        case RPIDebugger.state.running: {
+
+          btn_start_serial_comm.hidden = true;
+
+          div_controls.hidden = false;
+
+        }
+          break;
+
+        default: break;
+      }
+    }
+
+    window.onload = function () {
+
+      document.addEventListener('hovenlog', (e) => console.log(e.detail.text));
+
+      document.addEventListener('hovenstate', (e) => set_ui(e.detail));
+
+      document.getElementById("btn_start_serial_comm").addEventListener("click", () => rpi_debugger.start_raspberry_pi());
+
+      document.getElementById("btn_restart_rp").addEventListener("click", () => rpi_debugger.restart_raspberry_pi());
+
+      document.getElementById("btn_exit_rp").addEventListener("click", () => rpi_debugger.exit_raspberry_pi());
+    }
+
+  </script>
+
+</body>
+
+</html>
