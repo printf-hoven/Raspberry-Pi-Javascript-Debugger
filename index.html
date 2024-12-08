@@ -7,7 +7,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <title>Raspberry Pi Serial COMMMu</title>
+  <title>Raspberry Pi Serial COMM</title>
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
 
@@ -43,191 +43,202 @@
 
   <script type="text/javascript">
 
-    class LineBreakTransformer {
+    class RPIDebugger {
+
+      #line_break_transformer = class {
+
+        #chunks;
+
+        constructor() {
+
+          this.#chunks = "";
+
+        }
+
+        transform(chunk, controller) {
+
+          this.#chunks += chunk;
+
+          const lines = this.#chunks.split(/\r?\n|\r|\n/g);
+
+          this.#chunks = lines.pop();
+
+          lines.forEach((line) => controller.enqueue(line));
+
+        }
+
+        flush(controller) {
+
+          controller.enqueue(this.#chunks);
+
+        }
+
+      };
+
+      #lbl_log;
+
+      #state = { stopped: -1, running: 0, restarting: -2, unavailable: -3 };
+
+      #btn_start_serial_comm;
+
+      #div_controls;
+
+      #serial_port;
 
       constructor() {
 
-        this.chunks = "";
+        this.#btn_start_serial_comm = document.getElementById("btn_start_serial_comm");
 
+        this.#div_controls = document.getElementById("div_controls");
+
+        this.#lbl_log = document.getElementById("log");
+
+        this.#btn_start_serial_comm.addEventListener("click", () => { this.#btn_start_serial_comm_click(); });
+
+        document.getElementById("btn_restart_rp").addEventListener("click", () => { this.#btn_restart_rp_click(); });
+
+        document.getElementById("btn_exit_rp").addEventListener("click", async () => { this.#set_ui(this.#state.unavailable); await this.#write_to_COMM(/* q */113); });
+
+        this.#set_ui(this.#state.stopped);
       }
 
-      transform(chunk, controller) {
+      #set_ui(ui_state) {
 
-        this.chunks += chunk;
+        this.#lbl_log.innerHTML = "";
 
-        const lines = this.chunks.split(/\r?\n|\r|\n/g);
+        switch (ui_state) {
 
-        this.chunks = lines.pop();
+          case this.#state.stopped: {
 
-        lines.forEach((line) => controller.enqueue(line));
+            this.#btn_start_serial_comm.hidden = false;
 
-      }
+            this.#div_controls.hidden = true;
 
-      flush(controller) {
+          }
+            break;
 
-        controller.enqueue(this.chunks);
+          case this.#state.unavailable:
+          case this.#state.restarting: {
 
-      }
+            this.#btn_start_serial_comm.hidden = true;
 
-    }
+            this.#div_controls.hidden = true;
 
-    const lbl_log = document.getElementById("log");
+          }
+            break;
 
-    const state = { stopped: -1, running: 0, restarting: -2, unavailable: -3 };
+          case this.#state.running: {
 
-    const btn_start_serial_comm = document.getElementById("btn_start_serial_comm");
+            this.#btn_start_serial_comm.hidden = true;
 
-    const btn_restart_rp = document.getElementById("btn_restart_rp");
+            this.#div_controls.hidden = false;
 
-    const div_controls = document.getElementById("div_controls");
+          }
+            break;
 
-    const btn_exit_rp = document.getElementById("btn_exit_rp");
-
-    let serial_port;
-
-    function set_ui(ui_state) {
-
-      lbl_log.innerHTML = "";
-
-      switch (ui_state) {
-
-        case state.stopped: {
-
-          btn_start_serial_comm.hidden = false;
-
-          div_controls.hidden = true;
-
+          default: // do nothing
         }
-          break;
-
-        case state.unavailable:
-        case state.restarting: {
-
-          btn_start_serial_comm.hidden = true;
-
-          div_controls.hidden = true;
-
-        }
-          break;
-
-        case state.running: {
-
-          btn_start_serial_comm.hidden = true;
-
-          div_controls.hidden = false;
-
-        }
-          break;
-
-        default: // do nothing
       }
-    }
+
+      async #btn_start_serial_comm_click() {
+
+        if (!("serial" in navigator)) {
+
+          alert("Serial Communication is not supported in this browser or device.");
+
+          this.#set_ui(this.#state.unavailable);
+
+          return;
+        }
+
+        this.#lbl_log.innerHTML = `<small class="text-success">Starting...</small>`;
+
+        this.#set_ui(this.#state.restarting);
+
+        // select the first saved port
+        await navigator.serial.getPorts().then((ports) => { ports.forEach((port) => { this.#serial_port = port; console.log(port.getInfo().usbVendorId); return; }); });
+
+        // ask user if none saved
+        if (!this.#serial_port) { this.#serial_port = await navigator.serial.requestPort([{ usbVendorId: 0x2E8A }]).catch(() => this.#set_ui(this.#state.stopped)); }
+
+        await this.#serial_port.open({ baudRate: 9600 });
+
+        this.#lbl_log.innerHTML = `<small class="text-success">Connected at 9600!</small>`;
+
+        const textDecoder = new TextDecoderStream();
+
+        const readableStreamClosed = this.#serial_port.readable.pipeTo(textDecoder.writable);
+
+        const reader = textDecoder.readable.pipeThrough(new TransformStream(new this.#line_break_transformer())).getReader();
+
+        this.#set_ui(this.#state.running);
+
+        let data = new Array(10);
+
+        // Listen to data coming from the serial device.
+        while (true) {
+
+          try {
+
+            const { value, done } = await reader.read();
+
+            if (done) {
+
+              reader.releaseLock();
+
+              break;
+            }
+
+            data.unshift(value);
+
+            data.pop();
+          }
+          catch { break; }
+
+          this.#lbl_log.innerHTML = "";
+
+          data.forEach((l) => { this.#lbl_log.innerHTML += `<small class="text-info d-block my-3">${l}</small>`; });
+        }
+
+        await reader.cancel().catch(() => {/* Ignore the error */ });
+
+        await readableStreamClosed.catch(() => { /* Ignore the error */ });
+
+        await this.#serial_port.close();
+
+        this.#serial_port = null;
+      }
+
+      async #write_to_COMM(c) {
+
+        const writer = this.#serial_port.writable.getWriter();
+
+        const data = new Uint8Array([c]); // hello
+
+        await writer.write(data);
+
+        // Allow the serial port to be closed later.
+        await writer.releaseLock();
+      }
+
+      async #btn_restart_rp_click() {
+
+        this.#set_ui(this.#state.restarting);
+
+        await this.#write_to_COMM(/* r */114);
+
+        this.#lbl_log.innerHTML = `<small class="text-info">Restarting in 2 seconds...</small>`;
+
+        window.setTimeout(async () => { await this.#btn_start_serial_comm_click(); }, 2000);
+      }
+    };
+
+    let rpi_debugger;
 
     window.onload = function () {
 
-      if ("serial" in navigator) {
-
-        btn_start_serial_comm.addEventListener("click", btn_start_serial_comm_click);
-
-        btn_restart_rp.addEventListener("click", btn_restart_rp_click);
-
-        btn_exit_rp.addEventListener("click", async (event) => { set_ui(state.unavailable); await write_to_COMM(/* q */113); });
-
-        set_ui(state.stopped);
-
-      }
-      else {
-
-        alert("Serial Communication is not supported in this setup.");
-
-        set_ui(state.unavailable);
-
-      }
+      rpi_debugger = new RPIDebugger();
     }
-
-    async function btn_start_serial_comm_click() {
-
-      lbl_log.innerHTML = `<small class="text-success">Starting...</small>`;
-
-      set_ui(state.restarting);
-
-      // select the first saved port
-      await navigator.serial.getPorts().then((ports) => { ports.forEach((port) => { serial_port = port; console.log(port.getInfo().usbVendorId); return; }); });
-
-      // ask user if none saved
-      if (!serial_port) { serial_port = await navigator.serial.requestPort([{ usbVendorId: 0x2E8A }]).catch(() => set_ui(state.stopped)); }
-
-      await serial_port.open({ baudRate: 9600 });
-
-      lbl_log.innerHTML = `<small class="text-success">Connected at 9600!</small>`;
-
-      const textDecoder = new TextDecoderStream();
-
-      const readableStreamClosed = serial_port.readable.pipeTo(textDecoder.writable);
-
-      const reader = textDecoder.readable.pipeThrough(new TransformStream(new LineBreakTransformer())).getReader();
-
-      set_ui(state.running);
-
-      let data = new Array(10);
-
-      // Listen to data coming from the serial device.
-      while (true) {
-
-        try {
-
-          const { value, done } = await reader.read();
-
-          if (done) {
-
-            reader.releaseLock();
-
-            break;
-          }
-
-          data.unshift(value);
-
-          data.pop();
-        }
-        catch { break; }
-
-        log.innerHTML = "";
-
-        data.forEach((l) => { log.innerHTML += `<small class="text-info d-block my-3">${l}</small>`; });
-      }
-
-      await reader.cancel().catch(() => {/* Ignore the error */ });
-
-      await readableStreamClosed.catch(() => { /* Ignore the error */ });
-
-      await serial_port.close();
-
-      serial_port = null;
-    }
-
-    async function write_to_COMM(c) {
-
-      const writer = serial_port.writable.getWriter();
-
-      const data = new Uint8Array([c]); // hello
-
-      await writer.write(data);
-
-      // Allow the serial port to be closed later.
-      await writer.releaseLock();
-    }
-
-    async function btn_restart_rp_click() {
-
-      set_ui(state.restarting);
-
-      await write_to_COMM(/* r */114);
-
-      lbl_log.innerHTML = `<small class="text-info">Restarting in 2 seconds...</small>`;
-
-      window.setTimeout(async () => { await btn_start_serial_comm_click(); }, 2000);
-    }
-
 
   </script>
 
