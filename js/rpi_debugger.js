@@ -45,8 +45,6 @@ class RPIDebugger {
       return;
     }
 
-    this.#publish_message("Starting...", true);
-
     this.#publish_state(RPIDebugger.state.starting);
 
     // select the first saved port
@@ -56,6 +54,8 @@ class RPIDebugger {
     if (!this.#serial_port) { this.#serial_port = await navigator.serial.requestPort([{ usbVendorId: 0x2E8A }]).catch(() => this.#publish_state(RPIDebugger.state.stopped)); }
 
     if (!(this.#serial_port instanceof SerialPort)) { console.log("Nothing selected? Otherwise close the browser and retry."); return; }
+
+    this.#publish_message("Starting...", true);
 
     await this.#serial_port.open({ baudRate: 9600 });
 
