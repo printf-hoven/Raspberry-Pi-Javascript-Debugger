@@ -1,3 +1,1 @@
-# RaspberryPi
-# git config http.sslCAinfo "I:\RaspberryPico\Git\usr\ssl\certs\ca-bundle.crt"
-Raspberry Pi code
+Youtube Link on how to: https://youtu.be/9fXton7lapE
